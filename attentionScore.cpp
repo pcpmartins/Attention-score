@@ -5,6 +5,7 @@
 #include <iomanip>      // std::setprecision
 #include <RunningStats.h>
 #include <chrono>
+#include <string>
 
 //face detection
 #include "opencv2/objdetect.hpp"
@@ -14,74 +15,81 @@
 //countour detection
 #include <stdlib.h>
 
+//file output
+#include <fstream>      // std::fstream
+
 using namespace std;
 using namespace cv;
 using namespace saliency;
+using std::fstream;
 
 /** Function Headers */
 void detectFacesAndDisplay(const Mat& frame, const Mat& image);
 static void detectContoursAndDisplay(const Mat& img, const Mat& dst);
+static void processColors(const Mat& colorMat);
 CascadeClassifier face_cascade, body_cascade;
 // running statistics class is used to compute statistics in one pass trough the data
 RunningStats runstatStaticSaliency, runstatMotionSaliency, runstatContourArea,
-runstatContours, runstatMultipleFacesMean;
+runstatContours, runstatMultipleFacesMean, runstatColourfull;
 double totalMotionSaliency, totalFaceBool, totalBodyBool, totalFaceMultiple, oldMotionValue;
-//StaticSaliencySpectralResidual spec;
 double thresh = 1;
 RNG rng(12345);
 bool method = false;
-bool objectness = false;
-bool drawFaces = true;
-bool drawTheContours = true;
-int resizeMode = 0;
-Size maxFaceSize = Size(10, 10);
-Size maxBodySize = Size(10, 10);
+bool preview = false;
+//bool objectness = false;
+bool drawFaces = false;
+bool drawTheContours = false;
+int resizeMode = 1;
+Size maxFaceSize = Size(30, 30);
+double facePercent = 0.0;
 Size frameResizeSize = Size(320, 240);
 int cuts = 0;
 double finalAttentionScore = 0.0;
 double frameContourArea = 0.0;
+int bw = 0;
+double colourFull = 0.0;
 
 static const char* keys =
 { "{@video_name      | | video name            }"
-"{@resize_mode     |1| resize mode           }"
-"{@training_path   |1| Path of the folder containing the trained files}" };
+"{@preview    |0| preview mode}" };
 
 static void help()
 {
 	cout << "\nThis utility processes videos and return an attention score [0,1]"
 		"Call:\n"
-		"./attentionScore.exe  <video_name> <resize mode> \n"
+		"./attentionScore.exe  <video_name> <preview mode> \n"
 		<< endl;
 }
 
 int main(int argc, char** argv)
 {
 	CommandLineParser parser(argc, argv, keys);
-	//String saliency_algorithm = parser.get<String>(0);
 	String saliency_algorithm = "BinWangApr2014";
 	String video_name = parser.get<String>(0);
-	resizeMode = parser.get<int>(1);
-	String training_path = parser.get<String>(2);
-	//cout << parser.get<String>(0) << endl;
+	//resizeMode = parser.get<int>(1);
+	//String training_path = parser.get<String>(2);
 
+	if (parser.get<String>(1) == "1") {
+		//system("pause");
+		preview = true;
+	}
 	String saliency_algorithm2 = "SPECTRAL_RESIDUAL";
 	String saliency_algorithm3 = "FINE_GRAINED";
 	//String saliency_algorithm4 = "BING"; //for objectness
 	String face_cascade_name = "haar/haarcascade_frontalface_alt.xml";
-	String body_cascade_name = "haar/haarcascade_mcs_upperbody.xml";
+	//String body_cascade_name = "haar/haarcascade_mcs_upperbody.xml";
 
 	//-- 1. Load the cascades
 	if (!face_cascade.load(face_cascade_name)) { printf("--(!)Error loading face cascade\n"); return -1; };
-	if (!body_cascade.load(body_cascade_name)) { printf("--(!)Error loading body cascade\n"); return -1; };
+	//if (!body_cascade.load(body_cascade_name)) { printf("--(!)Error loading body cascade\n"); return -1; };
 
 	//Capture the video
 	VideoCapture cap;
 
 	if (video_name.length() == 1) {        //if the first argument have size 1
-		cap.open(stoi(video_name));      // try to open camera device number (0,1...)
+		cap.open(stoi(video_name));      // try to open camera device number (e.g:0,1..)
 	}
 	else {                                //else try to open a video file
-		cout << video_name.length() << endl;
 		cap.open(video_name);
 		cap.set(CAP_PROP_POS_FRAMES, 1);
 
@@ -99,21 +107,20 @@ int main(int argc, char** argv)
 	Mat image;
 	Mat frame;
 	//Mat image2;
-	Mat saliencyMap;
-
+	Mat motionSaliencyMap;
 
 	//instantiates the specific Saliency
-	Ptr<Saliency> saliencyAlgorithm = Saliency::create(saliency_algorithm);
+	Ptr<Saliency> motionSaliencyAlgorithm = Saliency::create(saliency_algorithm);
 
 	String choosenMethod = "";
 	if (!method) { choosenMethod = saliency_algorithm2; }
 	else { choosenMethod = saliency_algorithm3; }
 
-	Ptr<Saliency> saliencyAlgorithm2 = Saliency::create(choosenMethod);
+	Ptr<Saliency> staticSaliencyAlgorithm = Saliency::create(choosenMethod);
 
 	//Ptr<Saliency> saliencyAlgorithm4 = Saliency::create(saliency_algorithm4); //for objectness
 
-	if (saliencyAlgorithm == NULL)
+	if (motionSaliencyAlgorithm == NULL)
 	{
 		cout << "***Error in the instantiation of the saliency algorithm...***\n";
 		return -1;
@@ -128,8 +135,8 @@ int main(int argc, char** argv)
 	//frame.copyTo(image2);
 	int frameCount = 0;
 
-	saliencyAlgorithm.dynamicCast<MotionSaliencyBinWangApr2014>()->setImagesize(image.cols, image.rows);
-	saliencyAlgorithm.dynamicCast<MotionSaliencyBinWangApr2014>()->init();
+	motionSaliencyAlgorithm.dynamicCast<MotionSaliencyBinWangApr2014>()->setImagesize(image.cols, image.rows);
+	motionSaliencyAlgorithm.dynamicCast<MotionSaliencyBinWangApr2014>()->init();
 
 	//for objectness
 	//vector<Vec4i> objVecMap;
@@ -143,7 +150,7 @@ int main(int argc, char** argv)
 	runstatStaticSaliency.Clear();
 	runstatContourArea.Clear();
 	runstatContours.Clear();
-
+	runstatColourfull.Clear();
 	bool paused = false;
 
 	switch (resizeMode)    //resize for performance sake
@@ -169,7 +176,39 @@ int main(int argc, char** argv)
 
 			if (frameTemp.empty()) {
 				cout << endl;
-				system("pause"); //will pause after program completion
+				cout << " video file:      " << video_name << endl;
+				cout << std::setprecision(4) << std::fixed <<
+					" Static saliency: " << runstatStaticSaliency.Mean() << endl;
+
+				cout << " Motion saliency: " << runstatMotionSaliency.Mean() << endl;
+				cout << " Faces:           " << facePercent << endl;
+				cout << " Cuts:            " << cuts - 2 << endl;
+				cout << " Contour area:    " << runstatContourArea.Mean() * 30 / (totalPixels) << endl;
+				cout << " Contour count:   " << runstatContours.Mean() << endl;
+				cout << " Colourfulness:   " << colourFull << endl;
+				cout << " Attention Score: " << finalAttentionScore << "\n"<<endl;
+				//system("pause"); //will pause after program completion
+
+				//Save metadata to the output csv file
+				string outfile = "results/score_output.csv";
+				//string destName = video_name.substr(video_name.find_last_of('/') + 1, video_name.size());
+				//string finalName = "results/"+destName.substr(0, destName.find_last_of('.'))+".csv";
+				ofstream myfile(outfile.c_str(), std::ofstream::out | std::ofstream::app);
+
+				if (myfile.is_open()) {
+					myfile << video_name << ",";
+					myfile << runstatStaticSaliency.Mean() << ",";
+					myfile << runstatMotionSaliency.Mean() << ",";
+					myfile << facePercent << ",";
+					myfile << cuts-2 << ",";
+					myfile << runstatContourArea.Mean() * 30 / (totalPixels) << ",";
+					myfile << runstatContours.Mean() << ",";
+					myfile << colourFull << ",";
+					myfile << finalAttentionScore;
+					myfile << "\n";
+					myfile.close();
+				}
+
 				exit(1);
 			}
 
@@ -188,21 +227,28 @@ int main(int argc, char** argv)
 			frameCount++;
 
 			//Motion saliency BingWangApr2014
-			saliencyAlgorithm->computeSaliency(frame, saliencyMap);
+			motionSaliencyAlgorithm->computeSaliency(frame, motionSaliencyMap);
 
 			//Static saliency spectral residual or fine grained
-			Mat saliencyMap2;
-			saliencyAlgorithm2->computeSaliency(frame, saliencyMap2);
+			Mat staticSaliencyMap;
+			staticSaliencyAlgorithm->computeSaliency(frame, staticSaliencyMap);
 
+			/* for binary map
+			Mat binaryMap;
+			StaticSaliencySpectralResidual spec;
+			spec.computeBinaryMap(staticSaliencyMap, binaryMap);
+			*/
 			//saliencyAlgorithm4->computeSaliency(image2, objVecMap); //for objectness
 
+			//Process oponent colours
+			processColors(image);
 			//-- 3. Apply face detection to the frame
 			detectFacesAndDisplay(frame, image);
-			//-- 3. Apply contour detection to the frame
-			detectContoursAndDisplay(saliencyMap2, image);
+			//-- 3. Apply contour detection to the saliency map
+			detectContoursAndDisplay(staticSaliencyMap, image);
 
 			//Let's compute percentage of moving pixels from the total frame pixels
-			double whitePixelsCount = countNonZero(saliencyMap);
+			double whitePixelsCount = countNonZero(motionSaliencyMap);
 			double frameBlackPixelsPercent = (totalPixels - whitePixelsCount) / totalPixels;
 			double frameWhitePixelsPercent = 1 - frameBlackPixelsPercent;
 
@@ -212,8 +258,8 @@ int main(int argc, char** argv)
 			if (motionFrameDiff > 0.05) { cuts++; }
 
 			//Calculate mean and std. deviance for static and motion saliency
-			Scalar tempVal = mean(saliencyMap2);
-			double myMAtMean = tempVal.val[0];
+			Scalar tempVal = mean(staticSaliencyMap);
+			double myMAtMean = tempVal.val[0] * 3;
 			if (isnan(myMAtMean))myMAtMean = 0;
 			runstatStaticSaliency.Push(myMAtMean);
 
@@ -222,45 +268,37 @@ int main(int argc, char** argv)
 			if (isnan(s2))s2 = 0;
 			if (isnan(m2))m2 = 0;
 
-			double facePercent = totalFaceBool / frameCount;
-			//double bodyPercent = totalBodyBool / frameCount; //for body classification
+			facePercent = totalFaceBool / frameCount;
 
-			// Ad-hoc final metric
-			finalAttentionScore = (runstatStaticSaliency.Mean() + s2
-				+ runstatMotionSaliency.Mean() + m2 + (facePercent / 4) + (runstatContourArea.Mean() * 10) / totalPixels) / 3;
+			if (bw < 100) {   //black and white detection
+			colourFull = runstatColourfull.Mean();
+			}
+			else { colourFull = 0.0; }
+
+			if (frameCount > 80) runstatMotionSaliency.Push(frameWhitePixelsPercent); //*3
+
+			// Ad-hoc final metric depends on 4 metrics (static, motion saliency, faces, colourfulness)
+			finalAttentionScore = (runstatMotionSaliency.Mean()+ (facePercent / 2) +
+				((runstatContourArea.Mean() * 30) / totalPixels) + colourFull) / 4;
 			String fas = "Score: " + std::to_string(finalAttentionScore);
 
+			if (preview) {
+				Point2f a(0, 0), b(140, 20);
+				rectangle(image, a, b, (0, 0, 0), CV_FILLED, 8, 0);
+				putText(image, fas, Point(5, 15), CV_FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 255), 1, 8, false);
+				imshow("Original Image", image);
+				//imshow("BING ojectness", image2);
+				imshow("Motion Map", motionSaliencyMap);
+				imshow("Static map", staticSaliencyMap);
+			}
 
-			Point2f a(0, 0), b(140, 20);
-			rectangle(image, a, b, (0, 0, 0), CV_FILLED, 8, 0);
+			cout << "\r" << "frames: " << frameCount << " Score: " << finalAttentionScore;
 
-			putText(image, fas, Point(5, 15), CV_FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 255), 1, 8, false);
-
-			imshow("Original Image", image);
-			//imshow("BING ojectness", image2);
-			imshow("Motion Map", saliencyMap);
-			imshow("Static map", saliencyMap2);
-
-
-			cout << "\r" << std::setprecision(4) << std::fixed <<
-				"fr: " << frameCount <<
-				" SS: " << runstatStaticSaliency.Mean() <<
-				" SS2: " << s2 <<
-				" MS: " << runstatMotionSaliency.Mean() <<
-				" MS2: " << m2 <<
-				" F: " << facePercent <<
-				" Cut: " << cuts <<
-				" CA: " << runstatContourArea.Mean() * 10 / (totalPixels) <<
-				" CN: " << runstatContours.Mean();
-
-			//" MF: " << runstatMultipleFacesMean.Mean() <<
-
-			if (frameCount > 80) runstatMotionSaliency.Push(frameWhitePixelsPercent);
-
-			saliencyMap.release();
-			saliencyMap2.release();
+			motionSaliencyMap.release();
+			staticSaliencyMap.release();
 		}
 
+		//keyboard shortcuts
 		char c = (char)waitKey(2);
 		if (c == '1')
 			drawFaces = !drawFaces;
@@ -275,7 +313,6 @@ int main(int argc, char** argv)
 			paused = !paused;
 	}
 
-	//}
 	return 0;
 }
 
@@ -283,46 +320,22 @@ int main(int argc, char** argv)
 void detectFacesAndDisplay(const Mat& frame, const Mat& image)
 {
 	std::vector<Rect> faces;
-	//std::vector<Rect> bodies;
 	equalizeHist(frame, frame);
 
 	//-- Detect faces
 	face_cascade.detectMultiScale(frame, faces, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, maxFaceSize);
-	//body_cascade.detectMultiScale(frame, bodies, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, maxBodySize);
 
-	if (faces.size())totalFaceBool++;
+	if (faces.size())totalFaceBool++; //increment faces variable
 
 	if (drawFaces) {
 		for (size_t i = 0; i < faces.size(); i++)
 		{
 			Point center(faces[i].x + faces[i].width / 2, faces[i].y + faces[i].height / 2);
 			ellipse(image, center, Size(faces[i].width / 2, faces[i].height / 2), 0, 0, 360, Scalar(0, 255, 255), 2, 8, 0);
-
 		}
 	}
-	runstatMultipleFacesMean.Push(faces.size());
-	/*
-	if (bodies.size())totalBodyBool++;
+	runstatMultipleFacesMean.Push(faces.size()); //sum faces found to total
 
-	if (drawCascade2) {
-		for (size_t i = 0; i < bodies.size(); i++)
-		{
-			Mat faceROI = image(bodies[i]);
-			int x = bodies[i].x;
-			int y = bodies[i].y;
-			int h = y + bodies[i].height;
-			int w = x + bodies[i].width;
-			rectangle(image,
-				Point(x, y),
-				Point(w, h),
-				Scalar(255, 0, 255),
-				2,
-				8,
-				0);
-
-		}
-	}
-	*/
 }
 /** @function detectContoursAndDisplay */
 static void detectContoursAndDisplay(const Mat& img, const Mat& dst) {
@@ -342,21 +355,57 @@ static void detectContoursAndDisplay(const Mat& img, const Mat& dst) {
 	vector<Vec4i> hierarchy;
 
 	/// Detect edges using canny
-
 	blur(B, B, Size(3, 3)); // first blur a little bit
 	Canny(B, canny_output, thresh, thresh * 2, 3, true); //apply canny 
 	/// Find contours
-	findContours(canny_output, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
+	findContours(canny_output, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE, Point(0, 0));
 	double area0 = 0.0;
-	/// Draw the contours
-	if (drawTheContours)
-		for (int i = 0; i < contours.size(); i++)
-		{
+
+	for (int i = 0; i < contours.size(); i++)
+	{
+		vector<Point> contour = contours[i];
+		area0 += contourArea(contour);
+
+		if (drawTheContours) { 	/// Draw the contours
 			Scalar color = Scalar(rng.uniform(0, 0), rng.uniform(150, 255), rng.uniform(0, 255));
 			drawContours(dst, contours, i, color, 2, 8, hierarchy, 0, Point());
-			vector<Point> contour = contours[i];
-			area0 += contourArea(contour);
 		}
+	}
 	runstatContourArea.Push(area0);
 	runstatContours.Push(contours.size());
+}
+/** @function processOponentColours */
+
+static void processColors(const Mat& colorMat) {
+
+	Scalar colAvg, colStds;
+	meanStdDev(colorMat, colAvg, colStds);
+
+	// C++ algorithm implementation of the
+	// "Measuring colourfulness in natural images"
+	// (Hasler and Susstrunk, 2003)
+
+	double B = colAvg[0];
+	double G = colAvg[1];
+	double R = colAvg[2];
+
+	//cout  << std::setprecision(4) << std::fixed << colAvg[0] << " " << colAvg[1] << " " << colAvg[2] <<endl;
+	//cout << fabs(B - G) << " "<<fabs(G - R) << endl;
+
+	double bg = fabs(B - G);
+	double gr = fabs(G - R);
+
+	if ((bg != 0.0) && (gr != 0.0)) { //if it is not black and white video
+
+		double RGmean = colAvg[2] - colAvg[1];
+		double YBmean = ((RGmean) / 2) - colAvg[0];
+		double RGstd = colStds[2] - colStds[1];
+		double YBstd = ((RGstd) / 2) - colStds[0];
+		double colorfullnessMean = sqrt(pow(RGmean, 2) + pow(YBmean, 2));
+		double colorfullnessStd = sqrt(pow(RGstd, 2) + pow(YBstd, 2));
+		double ColorFull = colorfullnessStd + 0.3*colorfullnessMean;
+		runstatColourfull.Push(ColorFull / 200);
+
+	}
+	else { bw++; }
 }

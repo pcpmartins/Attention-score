@@ -1,6 +1,6 @@
 # Attention score 
 
-Experimental utility for video attention score metric using a fusion of visual attention related features. Based on the [(OpenCV library of algorithms](https://opencv.org/). This code is just a proof of a concept.
+Experimental utility for video attention score metric using a fusion of visual attention related features. Based on the [(OpenCV library of algorithms](https://opencv.org/). This code is just a proof of concept.
 
 ![figure 1](/images/screenshot.jpg)
 *figure 1 - Application Interface* 
@@ -19,35 +19,36 @@ To capture from a camera pass the device number (e.g: 0, 1).
 
 * attentionScore 0, will result in capturing the camera device 0.
 
-* You may also pass a video file instead of a device number, as in attentionScore movies/video.avi 0
+* You may also pass a video file instead of a device number, as in attentionScore movies\video.avi
 
-* It is also possible to control the resizeMode for video files, attentionScore movies/video.avi 0 will bypass resizing, 
-there are several resizing options:
+* To open the preview windows use "1" as second argument (e.g: attentionScore movies\video.mp4 1, or attentionScore 0 1)
 
-0 - no resize.
-1 - 320x240.
-2 - 480x360.
-3 - 680x480.
+* To process a folder(default: \movies) of video files use the available batch file (process_folder.bat)
 
-## Keyboard shortcuts
+## Output
+
+![figure 2](/images/output.jpg)
+*figure 2 - Output*
+
+The metrics and final attention score for each processed video is appended in the results\score_output.csv file
+
+## Keyboard shortcuts for video preview
 
 * q : quit
 * p : pause
 * 1 : toggle face detection
 * 2 : toggle contours
 
-## Attention score algorithm
+## Attention metrics
 
-The metrics used for the final score:
-
-* SS:  Static saliency mean
-* SS2: Static saliency std. deviance
-* MS:  Motion saliency mean
-* MS2: Motion saliency std. deviance
-* F:   Face detection percent
-* Cut: Cuts detected by motion saliency comparison
-* CA:  Contour area, obtained from the static saliency map using a treshold
-* CN:  Contour number, mean count of individual contours per frame
+* Static saliency mean
+* Static saliency std. deviance
+* Motion saliency mean
+* Motion saliency std. deviance
+* Face detection percent
+* Cuts detected by motion saliency comparison
+* Contour area, obtained from the static saliency map using a treshold
+* Contour count, mean count of individual contours per frame
 
 ## Additional info
 

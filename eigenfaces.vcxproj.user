@@ -5,7 +5,7 @@
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LocalDebuggerCommandArguments>movies/0440.mp4 1</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>movies/animados.mov 0</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
     <LocalDebuggerWorkingDirectory>bin</LocalDebuggerWorkingDirectory>
   </PropertyGroup>

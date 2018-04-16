@@ -24,6 +24,7 @@ using namespace saliency;
 using std::fstream;
 
 /** Function Headers */
+void init();
 void detectFacesAndDisplay(const Mat& frame, const Mat& image);
 static void detectContoursAndDisplay(const Mat& img, const Mat& dst);
 static void processColors(const Mat& colorMat);
@@ -48,6 +49,7 @@ double finalAttentionScore = 0.0;
 double frameContourArea = 0.0;
 int bw = 0;
 double colourFull = 0.0;
+int frameCount = 0;
 
 static const char* keys =
 { "{@video_name      | | video name            }"
@@ -133,7 +135,6 @@ int main(int argc, char** argv)
 	}
 	frame.copyTo(image);
 	//frame.copyTo(image2);
-	int frameCount = 0;
 
 	motionSaliencyAlgorithm.dynamicCast<MotionSaliencyBinWangApr2014>()->setImagesize(image.cols, image.rows);
 	motionSaliencyAlgorithm.dynamicCast<MotionSaliencyBinWangApr2014>()->init();
@@ -306,6 +307,9 @@ int main(int argc, char** argv)
 		if (c == '2')
 			drawTheContours = !drawTheContours;
 
+		if (c == '3')
+			init();
+
 		if (c == 'q')
 			break;
 
@@ -408,4 +412,25 @@ static void processColors(const Mat& colorMat) {
 
 	}
 	else { bw++; }
+}
+
+void init() {
+
+	totalMotionSaliency = totalFaceBool = totalBodyBool = totalFaceMultiple = oldMotionValue = 0.0;
+	runstatMotionSaliency.Clear();
+	runstatMultipleFacesMean.Clear();
+	runstatStaticSaliency.Clear();
+	runstatContourArea.Clear();
+	runstatContours.Clear();
+	runstatColourfull.Clear();
+	frameCount = 0;
+	facePercent = 0.0;	
+	cuts = 0;
+	finalAttentionScore = 0.0;
+	frameContourArea = 0.0;
+	colourFull = 0.0;
+
+
+	cout << "Values cleared" << endl;
+
 }
